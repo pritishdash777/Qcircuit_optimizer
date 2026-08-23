@@ -25,6 +25,10 @@ from src.circuit_utils import (
     compare_circuits
 )
 
+from src.benchmarks import (
+    get_benchmark_names,
+    create_benchmark
+)
 
 # ============================================================
 # SETTINGS
@@ -40,6 +44,21 @@ DEFAULT_USER_CIRCUIT = """h 0
 x 0
 h 0"""
 
+DEFAULT_QASM = """OPENQASM 2.0;
+include "qelib1.inc";
+
+qreg q[2];
+
+x q[0];
+x q[0];
+
+h q[0];
+
+cx q[0],q[1];
+
+z q[1];
+z q[1];
+"""
 
 # ============================================================
 # PAGE CONFIGURATION
@@ -75,6 +94,42 @@ def load_cnn_model():
     model.eval()
 
     return model
+
+# ============================================================
+# OPENQASM PARSER
+# ============================================================
+
+def build_circuit_from_qasm(qasm_text):
+    """
+    Convert OpenQASM 2 text into a Qiskit QuantumCircuit.
+
+    Example:
+
+    OPENQASM 2.0;
+    include "qelib1.inc";
+
+    qreg q[2];
+
+    h q[0];
+    cx q[0],q[1];
+    """
+
+    if not qasm_text.strip():
+        raise ValueError(
+            "OpenQASM input cannot be empty."
+        )
+
+    try:
+        circuit = QuantumCircuit.from_qasm_str(
+            qasm_text
+        )
+
+    except Exception as error:
+        raise ValueError(
+            f"Invalid OpenQASM: {error}"
+        )
+
+    return circuit
 
 # ============================================================
 # USER-DEFINED CIRCUIT PARSER
@@ -248,101 +303,8 @@ def build_circuit_from_text(
     return circuit
 
 # ============================================================
-# USER-DEFINED CIRCUIT
+# CIRCUIT DISPLAY HELPER
 # ============================================================
-
-st.header(
-    "Build Your Own Quantum Circuit"
-)
-
-st.write(
-    """
-    Enter one gate per line.
-
-    Examples:
-
-    `x 0` → X gate on qubit 0
-
-    `h 1` → Hadamard on qubit 1
-
-    `cx 0 1` → CNOT with q0 as control
-    and q1 as target
-    """
-)
-
-
-# ------------------------------------------------------------
-# Number of qubits
-# ------------------------------------------------------------
-
-num_qubits = st.number_input(
-    "Number of qubits",
-    min_value=1,
-    max_value=4,
-    value=1,
-    step=1
-)
-
-
-# ------------------------------------------------------------
-# Circuit instructions
-# ------------------------------------------------------------
-
-circuit_text = st.text_area(
-    "Circuit instructions",
-    value=DEFAULT_USER_CIRCUIT,
-    height=180
-)
-
-
-# ------------------------------------------------------------
-# Supported syntax
-# ------------------------------------------------------------
-
-with st.expander(
-    "Supported gate syntax"
-):
-
-    st.code(
-        """
-x 0
-y 0
-z 0
-h 0
-s 0
-t 0
-cx 0 1
-        """
-    )
-
-
-# ------------------------------------------------------------
-# Build circuit
-# ------------------------------------------------------------
-
-try:
-
-    user_circuit = build_circuit_from_text(
-        circuit_text,
-        int(num_qubits)
-    )
-
-    circuit_valid = True
-
-except ValueError as error:
-
-    user_circuit = None
-
-    circuit_valid = False
-
-    st.error(
-        str(error)
-    )
-
-
-# ------------------------------------------------------------
-# Display original circuit
-# ------------------------------------------------------------
 
 def circuit_to_text(circuit):
     """
@@ -356,25 +318,177 @@ def circuit_to_text(circuit):
     )
 
 
-if circuit_valid:
+# ============================================================
+# CHOOSE CIRCUIT SOURCE
+# ============================================================
 
-    st.subheader(
-        "Original Circuit"
-    )
+st.header(
+    "Choose Quantum Circuit"
+)
 
-    st.code(
-        circuit_to_text(
-            user_circuit
-        )
-    )
-
-    st.write(
-        f"Gate count: "
-        f"{len(user_circuit.data)}"
-    )
+circuit_source = st.radio(
+    "Circuit input method",
+    [
+        "Build Manually",
+        "Benchmark Circuit",
+        "OpenQASM"
+    ],
+    horizontal=True
+)
 
 # ============================================================
-# CIRCUIT TEXT
+# MANUAL CIRCUIT
+# ============================================================
+
+if circuit_source == "Build Manually":
+
+    st.subheader(
+        "Build Your Own Quantum Circuit"
+    )
+
+    num_qubits = st.number_input(
+        "Number of qubits",
+        min_value=1,
+        max_value=4,
+        value=1,
+        step=1
+    )
+
+    circuit_text = st.text_area(
+        "Circuit instructions",
+        value=DEFAULT_USER_CIRCUIT,
+        height=180
+    )
+
+    with st.expander(
+        "Supported gate syntax"
+    ):
+
+        st.code(
+            """
+x 0
+y 0
+z 0
+h 0
+s 0
+t 0
+cx 0 1
+            """
+        )
+
+    try:
+
+        user_circuit = build_circuit_from_text(
+            circuit_text,
+            int(num_qubits)
+        )
+
+        circuit_valid = True
+
+    except ValueError as error:
+
+        user_circuit = None
+        circuit_valid = False
+
+        st.error(
+            str(error)
+        )
+
+
+# ============================================================
+# BENCHMARK CIRCUIT
+# ============================================================
+
+elif circuit_source == "Benchmark Circuit":
+
+    st.subheader(
+        "Benchmark Quantum Circuit"
+    )
+
+    benchmark_name = st.selectbox(
+        "Select benchmark",
+        get_benchmark_names()
+    )
+
+    benchmark_qubits = st.slider(
+        "Number of qubits",
+        min_value=2,
+        max_value=4,
+        value=3
+    )
+
+    try:
+
+        user_circuit = create_benchmark(
+            benchmark_name,
+            num_qubits=benchmark_qubits
+        )
+
+        circuit_valid = True
+
+    except Exception as error:
+
+        user_circuit = None
+        circuit_valid = False
+
+        st.error(
+            f"Could not create benchmark: {error}"
+        )
+
+
+# ============================================================
+# OPENQASM CIRCUIT
+# ============================================================
+
+else:
+
+    st.subheader(
+        "OpenQASM Input"
+    )
+
+    st.write(
+        """
+        Paste an OpenQASM 2.0 circuit below.
+        The circuit will be parsed by Qiskit and sent
+        through the ML optimization pipeline.
+        """
+    )
+
+    qasm_text = st.text_area(
+        "OpenQASM code",
+        value=DEFAULT_QASM,
+        height=300
+    )
+
+    with st.expander(
+        "OpenQASM example"
+    ):
+
+        st.code(
+            DEFAULT_QASM,
+            language="text"
+        )
+
+    try:
+
+        user_circuit = build_circuit_from_qasm(
+            qasm_text
+        )
+
+        circuit_valid = True
+
+    except ValueError as error:
+
+        user_circuit = None
+        circuit_valid = False
+
+        st.error(
+            str(error)
+        )
+
+# ============================================================
+# DISPLAY ORIGINAL CIRCUIT
+# ============================================================
 
 if circuit_valid:
 
@@ -391,6 +505,11 @@ if circuit_valid:
     st.write(
         f"Gate count: "
         f"{len(user_circuit.data)}"
+    )
+
+    st.write(
+        f"Qubits: "
+        f"{user_circuit.num_qubits}"
     )
 
 # LOAD MODEL
