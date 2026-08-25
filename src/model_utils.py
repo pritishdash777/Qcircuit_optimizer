@@ -1,6 +1,6 @@
 import os
 import torch
-
+import json
 
 # ============================================================
 # SAVE MODEL
@@ -86,3 +86,85 @@ def model_exists(
     return os.path.exists(
         path
     )
+
+# ============================================================
+# SAVE EVALUATION METRICS
+# ============================================================
+
+import json
+
+
+def save_metrics(
+    metrics,
+    path="models/evaluation_metrics.json"
+):
+    """
+    Save evaluation results to a JSON file.
+
+    This lets the Streamlit frontend display
+    the real metrics associated with the model.
+    """
+
+    folder = os.path.dirname(path)
+
+    if folder:
+        os.makedirs(
+            folder,
+            exist_ok=True
+        )
+
+    # Convert NumPy / non-standard numeric values
+    # into normal Python numbers where needed.
+    clean_metrics = {}
+
+    for key, value in metrics.items():
+
+        try:
+            clean_metrics[key] = float(value)
+
+        except (TypeError, ValueError):
+            clean_metrics[key] = value
+
+    with open(
+        path,
+        "w"
+    ) as file:
+
+        json.dump(
+            clean_metrics,
+            file,
+            indent=4
+        )
+
+    print(
+        f"Evaluation metrics saved to: {path}"
+    )
+
+
+# ============================================================
+# LOAD EVALUATION METRICS
+# ============================================================
+
+def load_metrics(
+    path="models/evaluation_metrics.json"
+):
+    """
+    Load saved evaluation metrics.
+    """
+
+    if not os.path.exists(path):
+
+        raise FileNotFoundError(
+            f"Metrics file not found: {path}"
+        )
+
+    with open(
+        path,
+        "r"
+    ) as file:
+
+        metrics = json.load(
+            file
+        )
+
+    return metrics

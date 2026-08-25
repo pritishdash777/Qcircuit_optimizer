@@ -1,6 +1,6 @@
 qiskit
 qiskit-aer
-torch
+pytorch
 numpy
 networkx
 matplotlib

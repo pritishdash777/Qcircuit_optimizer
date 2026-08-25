@@ -54,7 +54,8 @@ from src.evaluation import (
 from src.model_utils import (
     save_model,
     load_model,
-    model_exists
+    model_exists,
+    save_metrics
 )
 
 # ============================================================
@@ -76,7 +77,7 @@ CNN_EPOCHS = 200
 # MODEL SETTINGS
 # ============================================================
 
-TRAIN_NEW_CNN = False
+TRAIN_NEW_CNN = True
 
 CNN_MODEL_PATH = "models/gate_optimizer_cnn.pth"
 
@@ -296,13 +297,13 @@ def inspect_autoencoder(
 
 # ============================================================
 # PART 5
-# TEST RULE-BASED OPTIMIZER
+# TEST -BASED OPTIMIZER
 # ============================================================
 
 def test_rule_based_optimizer():
 
     print_section(
-        "TESTING RULE-BASED OPTIMIZER"
+        "TESTING -BASED OPTIMIZER"
     )
 
     circuit = create_optimizer_test_circuit()
@@ -315,7 +316,7 @@ def test_rule_based_optimizer():
     )
 
     print(
-        "\nRule-based removal mask:",
+        "\n-based removal mask:",
         mask
     )
 
@@ -456,7 +457,6 @@ def load_saved_cnn():
 
     return model
 
-
 # ============================================================
 # PART 7
 # TEST CNN GATE OPTIMIZER
@@ -466,6 +466,15 @@ def test_cnn_optimizer(model):
     """
     Test the trained CNN optimizer on
     a hand-made quantum circuit.
+
+    Flow:
+    1. Create test circuit
+    2. Get rule-based correct mask
+    3. Get CNN prediction
+    4. Build ML candidate circuit
+    5. Validate candidate using fidelity
+    6. Accept or reject optimization
+    7. Return final statistics
     """
 
     print_section(
@@ -473,15 +482,29 @@ def test_cnn_optimizer(model):
     )
 
     # --------------------------------------------------------
-    # Create hand-made test circuit
+    # 1. Create hand-made test circuit
     # --------------------------------------------------------
 
     test_circuit = create_optimizer_test_circuit()
 
     print("\nOriginal circuit:")
     print(test_circuit)
+
     # --------------------------------------------------------
-    # ML PREDICTION
+    # 2. Rule-based teacher answer
+    # --------------------------------------------------------
+
+    actual_mask = get_redundancy_mask(
+        test_circuit
+    )
+
+    print(
+        "\nRule-based correct mask:",
+        actual_mask
+    )
+
+    # --------------------------------------------------------
+    # 3. CNN prediction
     # --------------------------------------------------------
 
     predicted_mask, probabilities = (
@@ -497,9 +520,8 @@ def test_cnn_optimizer(model):
         predicted_mask
     )
 
-
     # --------------------------------------------------------
-    # SHOW ML PROBABILITIES
+    # 4. Show probability for every gate
     # --------------------------------------------------------
 
     print(
@@ -537,9 +559,8 @@ def test_cnn_optimizer(model):
             f"{probability:.4f}"
         )
 
-
     # --------------------------------------------------------
-    # ML PROPOSES AN OPTIMIZED CIRCUIT
+    # 5. ML proposes optimized circuit
     # --------------------------------------------------------
 
     candidate_circuit, _, _ = (
@@ -558,27 +579,12 @@ def test_cnn_optimizer(model):
         candidate_circuit
     )
 
-
     # --------------------------------------------------------
-    # SAFETY VALIDATION
+    # 6. Safety validation
     # --------------------------------------------------------
-    #
-    # Important:
-    #
-    # ML does NOT automatically become the final result.
-    #
-    # The simulator checks the candidate first.
-    #
-    # Fidelity >= 0.99
-    # → ACCEPT
-    #
-    # Fidelity < 0.99
-    # → REJECT
-    # → return original circuit
-    #
 
     (
-        safe_circuit,
+        final_circuit,
         fidelity,
         accepted
     ) = validate_optimization(
@@ -587,22 +593,20 @@ def test_cnn_optimizer(model):
         fidelity_threshold=0.99
     )
 
-
     # --------------------------------------------------------
-    # PRINT SAFETY REPORT
+    # 7. Safety report
     # --------------------------------------------------------
 
     print_safety_report(
         test_circuit,
         candidate_circuit,
-        safe_circuit,
+        final_circuit,
         fidelity,
         accepted
     )
 
-
     # --------------------------------------------------------
-    # DISPLAY FINAL ACCEPTED CIRCUIT
+    # 8. Final accepted circuit
     # --------------------------------------------------------
 
     print(
@@ -610,12 +614,11 @@ def test_cnn_optimizer(model):
     )
 
     print(
-        safe_circuit
+        final_circuit
     )
 
-
     # --------------------------------------------------------
-    # FINAL STATISTICS
+    # 9. Gate statistics
     # --------------------------------------------------------
 
     original_gates = len(
@@ -627,9 +630,8 @@ def test_cnn_optimizer(model):
     )
 
     final_gates = len(
-        safe_circuit.data
+        final_circuit.data
     )
-
 
     proposed_removed = (
         original_gates
@@ -641,9 +643,8 @@ def test_cnn_optimizer(model):
         - final_gates
     )
 
-
     # --------------------------------------------------------
-    # Proposed gate reduction
+    # 10. Reduction percentages
     # --------------------------------------------------------
 
     if original_gates > 0:
@@ -653,17 +654,6 @@ def test_cnn_optimizer(model):
             / original_gates
         ) * 100
 
-    else:
-
-        proposed_reduction_percentage = 0.0
-
-
-    # --------------------------------------------------------
-    # Final SAFE gate reduction
-    # --------------------------------------------------------
-
-    if original_gates > 0:
-
         final_reduction_percentage = (
             final_removed
             / original_gates
@@ -671,11 +661,19 @@ def test_cnn_optimizer(model):
 
     else:
 
+        proposed_reduction_percentage = 0.0
         final_reduction_percentage = 0.0
 
+    # --------------------------------------------------------
+    # 11. Check ML mask
+    # --------------------------------------------------------
+
+    mask_correct = (
+        predicted_mask == actual_mask
+    )
 
     # --------------------------------------------------------
-    # FINAL RESULT
+    # 12. Final result
     # --------------------------------------------------------
 
     print_section(
@@ -727,16 +725,7 @@ def test_cnn_optimizer(model):
         f"{final_reduction_percentage:.2f}%"
     )
 
-
-    # --------------------------------------------------------
-    # CHECK ML MASK
-    # --------------------------------------------------------
-
-    actual_mask = get_redundancy_mask(
-        test_circuit
-    )
-
-    if predicted_mask == actual_mask:
+    if mask_correct:
 
         print(
             "Mask prediction: CORRECT"
@@ -748,13 +737,23 @@ def test_cnn_optimizer(model):
             "Mask prediction: INCORRECT"
         )
 
+    if accepted:
+
+        print(
+            "Quantum state preserved: YES"
+        )
+
+    else:
+
+        print(
+            "Quantum state preserved: NO"
+        )
 
     # --------------------------------------------------------
-    # RETURN RESULTS
+    # 13. Return results
     # --------------------------------------------------------
 
     return {
-
         "original_gates":
             original_gates,
 
@@ -779,6 +778,9 @@ def test_cnn_optimizer(model):
         "accepted":
             accepted,
 
+        "mask_correct":
+            mask_correct,
+
         "actual_mask":
             actual_mask,
 
@@ -788,196 +790,8 @@ def test_cnn_optimizer(model):
         "probabilities":
             probabilities
     }
-    # --------------------------------------------------------
-    # Rule-based teacher answer
-    # --------------------------------------------------------
 
-    actual_mask = get_redundancy_mask(
-        test_circuit
-    )
-
-    print(
-        "\nRule-based correct mask:",
-        actual_mask
-    )
-
-    # --------------------------------------------------------
-    # ML prediction
-    # --------------------------------------------------------
-
-    predicted_mask, probabilities = (
-        predict_gate_mask(
-            model,
-            test_circuit
-        )
-    )
-
-    print(
-        "ML predicted mask:",
-        predicted_mask
-    )
-
-    # --------------------------------------------------------
-    # Show probability for every gate
-    # --------------------------------------------------------
-
-    print(
-        "\nGate removal probabilities:"
-    )
-
-    for index, probability in enumerate(
-        probabilities
-    ):
-
-        instruction = (
-            test_circuit.data[index]
-        )
-
-        gate_name = (
-            instruction
-            .operation
-            .name
-            .upper()
-        )
-
-        qubit_numbers = [
-            test_circuit
-            .find_bit(qubit)
-            .index
-            for qubit
-            in instruction.qubits
-        ]
-
-        print(
-            f"Gate {index}: "
-            f"{gate_name}"
-            f"(q{qubit_numbers}) "
-            f"-> "
-            f"{probability:.4f}"
-        )
-
-    # --------------------------------------------------------
-    # Build optimized circuit using ML
-    # --------------------------------------------------------
-
-    optimized_circuit, _, _ = (
-        ml_optimize_circuit(
-            test_circuit,
-            model
-        )
-    )
-
-    print("\nML Optimized circuit:")
-    print(optimized_circuit)
-
-    # --------------------------------------------------------
-    # Calculate fidelity
-    # --------------------------------------------------------
-
-    fidelity = compare_circuits(
-        test_circuit,
-        optimized_circuit
-    )
-
-    # --------------------------------------------------------
-    # Optimization statistics
-    # --------------------------------------------------------
-
-    original_gates = len(
-        test_circuit.data
-    )
-
-    optimized_gates = len(
-        optimized_circuit.data
-    )
-
-    removed_gates = (
-        original_gates
-        - optimized_gates
-    )
-
-    if original_gates > 0:
-
-        reduction_percentage = (
-            removed_gates
-            / original_gates
-        ) * 100
-
-    else:
-
-        reduction_percentage = 0.0
-
-    # --------------------------------------------------------
-    # Display results
-    # --------------------------------------------------------
-
-    print_section(
-        "OPTIMIZATION RESULT"
-    )
-
-    print(
-        "Original gates:",
-        original_gates
-    )
-
-    print(
-        "Optimized gates:",
-        optimized_gates
-    )
-
-    print(
-        "Removed gates:",
-        removed_gates
-    )
-
-    print(
-        f"Gate reduction: "
-        f"{reduction_percentage:.2f}%"
-    )
-
-    print(
-        f"Fidelity: "
-        f"{fidelity:.4f}"
-    )
-
-    # --------------------------------------------------------
-    # Simple validation message
-    # --------------------------------------------------------
-
-    if predicted_mask == actual_mask:
-
-        print(
-            "Mask prediction: CORRECT"
-        )
-
-    else:
-
-        print(
-            "Mask prediction: INCORRECT"
-        )
-
-    if fidelity >= 0.99:
-
-        print(
-            "Quantum state preserved: YES"
-        )
-
-    else:
-
-        print(
-            "Quantum state preserved: NO"
-        )
-
-    return {
-        "original_gates": original_gates,
-        "optimized_gates": optimized_gates,
-        "removed_gates": removed_gates,
-        "reduction_percentage": reduction_percentage,
-        "fidelity": fidelity,
-        "actual_mask": actual_mask,
-        "predicted_mask": predicted_mask,
-        "probabilities": probabilities
-    }
+    
 def main():
 
     print_section(
@@ -1056,7 +870,6 @@ def main():
     results = test_cnn_optimizer(
         cnn_model
     )
-
     # --------------------------------------------------------
     # 6. Evaluate CNN on unseen circuits
     # --------------------------------------------------------
@@ -1076,6 +889,16 @@ def main():
     print_evaluation_report(
         evaluation_results
     )
+
+    # --------------------------------------------------------
+    # Save evaluation metrics for frontend
+    # --------------------------------------------------------
+
+    save_metrics(
+        evaluation_results,
+        "models/evaluation_metrics.json"
+    )
+
     # --------------------------------------------------------
     # 7. Threshold safety analysis
     # --------------------------------------------------------
@@ -1084,11 +907,11 @@ def main():
         cnn_model,
         test_circuits,
         thresholds=[
-    0.50,
-    0.60,
-    0.70,
-    0.80,
-    0.90
+            0.50,
+            0.60,
+            0.70,
+            0.80,
+            0.90
         ],
         fidelity_threshold=0.99
     )
@@ -1145,7 +968,6 @@ def main():
         "Overall gate reduction:",
         f"{evaluation_results['overall_gate_reduction']:.2f}%"
     )
-
 
 # ============================================================
 # RUN PROGRAM
