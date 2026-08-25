@@ -58,9 +58,13 @@ from src.model_utils import (
     save_metrics
 )
 
+import random
+import numpy as np
+
 # ============================================================
 # PROJECT SETTINGS
 # ============================================================
+
 
 REDUNDANCY_DATASET_SIZE = 1000
 
@@ -73,11 +77,23 @@ REDUNDANCY_EPOCHS = 100
 AUTOENCODER_EPOCHS = 100
 
 CNN_EPOCHS = 200
+
+# ============================================================
+# REPRODUCIBILITY SETTINGS
+# ============================================================
+
+RANDOM_SEED = 42
+
+random.seed(RANDOM_SEED)
+np.random.seed(RANDOM_SEED)
+torch.manual_seed(RANDOM_SEED)
+
+
 # ============================================================
 # MODEL SETTINGS
 # ============================================================
 
-TRAIN_NEW_CNN = True
+TRAIN_NEW_CNN = False
 
 CNN_MODEL_PATH = "models/gate_optimizer_cnn.pth"
 
@@ -297,13 +313,13 @@ def inspect_autoencoder(
 
 # ============================================================
 # PART 5
-# TEST -BASED OPTIMIZER
+# TEST RULE-BASED OPTIMIZER
 # ============================================================
 
 def test_rule_based_optimizer():
 
     print_section(
-        "TESTING -BASED OPTIMIZER"
+        "TESTING RULE-BASED OPTIMIZER"
     )
 
     circuit = create_optimizer_test_circuit()
@@ -316,7 +332,7 @@ def test_rule_based_optimizer():
     )
 
     print(
-        "\n-based removal mask:",
+        "\nRule-based removal mask:",
         mask
     )
 
@@ -352,10 +368,10 @@ def train_cnn_optimizer():
     # --------------------------------------------------------
 
     training_circuits, test_circuits = split_circuits(
-        all_circuits,
-        train_ratio=0.8,
-        seed=42
-    )
+    all_circuits,
+    train_ratio=0.8,
+    seed=RANDOM_SEED
+)
 
     print(
         f"Training circuits: {len(training_circuits)}"
@@ -425,7 +441,7 @@ def train_cnn_optimizer():
     # Return model and unseen test circuits
     # --------------------------------------------------------
 
-    return model, test_circuits  # FIZ
+    return model, test_circuits
 
 
 # ============================================================
@@ -457,6 +473,7 @@ def load_saved_cnn():
 
     return model
 
+
 # ============================================================
 # PART 7
 # TEST CNN GATE OPTIMIZER
@@ -472,7 +489,7 @@ def test_cnn_optimizer(model):
     2. Get rule-based correct mask
     3. Get CNN prediction
     4. Build ML candidate circuit
-    5. Validate candidate using fidelity
+    5. Validate candidate using operator equivalence
     6. Accept or reject optimization
     7. Return final statistics
     """
@@ -580,7 +597,7 @@ def test_cnn_optimizer(model):
     )
 
     # --------------------------------------------------------
-    # 6. Safety validation
+    # 6. Safety validation (Operator Equivalence)
     # --------------------------------------------------------
 
     (
@@ -701,7 +718,7 @@ def test_cnn_optimizer(model):
     )
 
     print(
-        f"Validation fidelity: "
+        f"Operator Equivalence Metric: "
         f"{fidelity:.4f}"
     )
 
@@ -740,13 +757,13 @@ def test_cnn_optimizer(model):
     if accepted:
 
         print(
-            "Quantum state preserved: YES"
+            "Operator equivalence verified: YES"
         )
 
     else:
 
         print(
-            "Quantum state preserved: NO"
+            "Operator equivalence verified: NO"
         )
 
     # --------------------------------------------------------
@@ -791,7 +808,7 @@ def test_cnn_optimizer(model):
             probabilities
     }
 
-    
+
 def main():
 
     print_section(
@@ -831,6 +848,7 @@ def main():
     # --------------------------------------------------------
 
     test_rule_based_optimizer()
+
     # --------------------------------------------------------
     # 4. Train OR load CNN gate optimizer
     # --------------------------------------------------------
@@ -862,7 +880,6 @@ def main():
             seed=42
         )
 
-
     # --------------------------------------------------------
     # 5. Test CNN on hand-made circuit
     # --------------------------------------------------------
@@ -870,6 +887,7 @@ def main():
     results = test_cnn_optimizer(
         cnn_model
     )
+
     # --------------------------------------------------------
     # 6. Evaluate CNN on unseen circuits
     # --------------------------------------------------------
@@ -919,21 +937,6 @@ def main():
     # --------------------------------------------------------
     # 8. Final summary
     # --------------------------------------------------------
-
-    print_section(
-        "FULL ML PIPELINE COMPLETED"
-    )
-
-    print(
-        "Hand-made test fidelity:",
-        f"{results['fidelity']:.4f}"
-    )
-
-    print(
-        "Hand-made test gate reduction:",
-        f"{results['reduction_percentage']:.2f}%"
-    )
-
     print(
         "Unseen test gate accuracy:",
         f"{evaluation_results['gate_accuracy'] * 100:.2f}%"
@@ -960,12 +963,17 @@ def main():
     )
 
     print(
-        "Average unseen fidelity:",
-        f"{evaluation_results['average_fidelity']:.4f}"
+        "Operator equivalence success rate:",
+        f"{evaluation_results['operator_equivalence_rate'] * 100:.2f}%"
     )
 
     print(
-        "Overall gate reduction:",
+        "Safe optimization rate:",
+        f"{evaluation_results['safe_optimization_rate'] * 100:.2f}%"
+    )
+
+    print(
+        "Overall proposed gate reduction:",
         f"{evaluation_results['overall_gate_reduction']:.2f}%"
     )
 

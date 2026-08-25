@@ -11,6 +11,12 @@ from qiskit import QuantumCircuit
 
 from .circuit_utils import compare_circuits
 
+from qiskit import QuantumCircuit
+
+from .circuit_utils import (
+    compare_circuits,
+    check_circuit_equivalence
+)
 
 # ============================================================
 # 1. RULE-BASED OPTIMIZER
@@ -287,182 +293,107 @@ def get_redundancy_mask(qc):
 
     return mask
 
+# ============================================================
+# RULE-BASED OPTIMIZER & SAFETY VALIDATION LAYER
+# ============================================================
 
-# ============================================================
-# 3. SAFETY VALIDATION
-# ============================================================
+
+
+def get_redundancy_mask(circuit):
+    """
+    Generate rule-based redundancy mask for a quantum circuit.
+    Finds adjacent self-inverse gate pairs on the same qubit(s).
+    """
+    mask = [0] * len(circuit.data)
+    i = 0
+    while i < len(circuit.data) - 1:
+        current_inst = circuit.data[i]
+        next_inst = circuit.data[i + 1]
+
+        current_op = current_inst.operation.name
+        next_op = next_inst.operation.name
+
+        current_qubits = [circuit.find_bit(q).index for q in current_inst.qubits]
+        next_qubits = [circuit.find_bit(q).index for q in next_inst.qubits]
+
+        # Check self-inverse adjacent single/two-qubit gates
+        if (current_op == next_op) and (current_qubits == next_qubits):
+            if current_op in ["x", "y", "z", "h", "cx"]:
+                mask[i] = 1
+                mask[i + 1] = 1
+                i += 2
+                continue
+        i += 1
+
+    return mask
 
 def validate_optimization(
-    original_circuit,
-    candidate_circuit,
-    fidelity_threshold=0.99
+    original_circuit: QuantumCircuit,
+    candidate_circuit: QuantumCircuit,
+    fidelity_threshold: float = 0.99
 ):
     """
-    Check whether an optimized candidate circuit
-    preserves the simulated quantum state.
+    Validate an ML-proposed optimization using exact
+    operator equivalence up to global phase.
 
-    The ML model proposes an optimization.
+    IMPORTANT:
+    `fidelity_threshold` is retained temporarily for
+    backward compatibility with existing call sites.
+    It is NOT used as the safety criterion.
 
-    This function decides whether we trust it.
+    Safety policy:
+    - Equivalent -> accept candidate.
+    - Not equivalent -> reject candidate and restore original.
+    - Verification failure -> reject candidate.
 
     Returns:
-
-    safe_circuit
-    fidelity
-    accepted
-
-    accepted = True
-        ML optimization passed validation.
-
-    accepted = False
-        ML optimization failed validation,
-        so the original circuit is returned.
+        final_circuit,
+        equivalence_metric,
+        accepted
     """
 
-    # --------------------------------------------------------
-    # Compare original and candidate
-    # --------------------------------------------------------
-
-    try:
-
-        fidelity = compare_circuits(
-            original_circuit,
-            candidate_circuit
-        )
-
-        fidelity = float(
-            fidelity
-        )
-
-    except Exception as error:
-
-        print(
-            "\nSafety validation failed:"
-        )
-
-        print(error)
-
-        # If validation itself fails,
-        # reject optimization.
-        return (
-            original_circuit,
-            0.0,
-            False
-        )
-
-    # --------------------------------------------------------
-    # Accept candidate only if fidelity is high enough
-    # --------------------------------------------------------
-
-    if fidelity >= fidelity_threshold:
-
-        return (
-            candidate_circuit,
-            fidelity,
-            True
-        )
-
-    # --------------------------------------------------------
-    # Otherwise reject ML optimization
-    # --------------------------------------------------------
-
-    return (
+    result = check_circuit_equivalence(
         original_circuit,
-        fidelity,
-        False
+        candidate_circuit
     )
 
-
-# ============================================================
-# 4. PRINT SAFETY REPORT
-# ============================================================
-
-def print_safety_report(
-    original_circuit,
-    candidate_circuit,
-    safe_circuit,
-    fidelity,
-    accepted
-):
-    """
-    Print a human-readable safety report.
-    """
-
-    original_gates = len(
-        original_circuit.data
-    )
-
-    candidate_gates = len(
-        candidate_circuit.data
-    )
-
-    final_gates = len(
-        safe_circuit.data
-    )
-
-    proposed_reduction = (
-        original_gates
-        - candidate_gates
-    )
-
-    final_reduction = (
-        original_gates
-        - final_gates
-    )
-
-    print("\n====================================")
-    print("ML OPTIMIZATION SAFETY CHECK")
-    print("====================================")
-
-    print(
-        "Original gates:",
-        original_gates
-    )
-
-    print(
-        "ML proposed gates:",
-        candidate_gates
-    )
-
-    print(
-        "ML proposed reduction:",
-        proposed_reduction
-    )
-
-    print(
-        f"Measured fidelity: "
-        f"{fidelity:.4f}"
+    accepted = bool(
+        result["equivalent"]
     )
 
     if accepted:
 
-        print(
-            "Safety result: ACCEPTED"
-        )
-
-        print(
-            "ML optimization preserved "
-            "the required state fidelity."
-        )
+        final_circuit = candidate_circuit
+        equivalence_metric = 1.0
 
     else:
 
-        print(
-            "Safety result: REJECTED"
-        )
+        final_circuit = original_circuit
+        equivalence_metric = 0.0
 
-        print(
-            "Original circuit restored."
-        )
-
-    print(
-        "Final circuit gates:",
-        final_gates
+    return (
+        final_circuit,
+        equivalence_metric,
+        accepted
     )
 
-    print(
-        "Final accepted reduction:",
-        final_reduction
-    )
 
-    print("====================================")
+def print_safety_report(
+    original_circuit,
+    candidate_circuit,
+    final_circuit,
+    equivalence_metric,
+    accepted
+):
+    """
+    Print a formatted safety report for circuit optimization.
+    """
+    print("\n------------------------------------")
+    print("SAFETY VERIFICATION REPORT")
+    print("------------------------------------")
+    print(f"Original Gate Count  : {len(original_circuit.data)}")
+    print(f"Candidate Gate Count : {len(candidate_circuit.data)}")
+    print(f"Final Gate Count     : {len(final_circuit.data)}")
+    print(f"Operator Equivalence : {'VERIFIED (1.0)' if accepted else 'FAILED (0.0)'}")
+    print(f"Optimization Status  : {'ACCEPTED' if accepted else 'REJECTED (Original Restored)'}")
+    print("------------------------------------\n")

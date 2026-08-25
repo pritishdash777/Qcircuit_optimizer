@@ -1,10 +1,12 @@
 # ============================================================
 # QUANTUM CIRCUIT ML OPTIMIZER
 # Evaluation Utilities
+#
+# Safety evaluation:
+# Exact operator equivalence up to global phase
 # ============================================================
 
 import random
-import numpy as np
 
 from .optimizer import get_redundancy_mask
 
@@ -13,7 +15,9 @@ from .gate_optimizer import (
     ml_optimize_circuit
 )
 
-from .circuit_utils import compare_circuits
+from .circuit_utils import (
+    check_circuit_equivalence
+)
 
 
 # ============================================================
@@ -26,22 +30,20 @@ def split_circuits(
     seed=42
 ):
     """
-    Split circuits into training and testing sets.
+    Split circuits into reproducible training and testing sets.
 
     Example:
 
-    10,000 circuits
-        ↓
+        10,000 circuits
+              ↓
+        8,000 training
+        2,000 testing
 
-    8,000 training circuits
-    2,000 testing circuits
-
-    The test circuits remain unseen during training.
+    The supplied seed controls the shuffle.
     """
 
     circuits = list(circuits)
 
-    # Fixed seed makes the split reproducible
     rng = random.Random(seed)
 
     rng.shuffle(circuits)
@@ -50,7 +52,7 @@ def split_circuits(
         len(circuits) * train_ratio
     )
 
-    train_circuits = circuits[
+    training_circuits = circuits[
         :split_index
     ]
 
@@ -59,7 +61,7 @@ def split_circuits(
     ]
 
     return (
-        train_circuits,
+        training_circuits,
         test_circuits
     )
 
@@ -73,17 +75,20 @@ def calculate_binary_metrics(
     predicted
 ):
     """
-    Calculate:
+    Calculate gate-level classification metrics.
 
-    Accuracy
-    Precision
-    Recall
-    F1 score
+    Label meaning:
 
-    In our project:
+        1 = REMOVE gate
+        0 = KEEP gate
 
-    1 = REMOVE gate
-    0 = KEEP gate
+    Metrics:
+
+        Accuracy
+        Precision
+        Recall
+        F1 score
+        Confusion counts
     """
 
     true_positive = 0
@@ -91,36 +96,33 @@ def calculate_binary_metrics(
     false_positive = 0
     false_negative = 0
 
-
     for actual_value, predicted_value in zip(
         actual,
         predicted
     ):
 
-        # Correctly predicted REMOVE
+        # Correct REMOVE prediction
         if (
             actual_value == 1
             and predicted_value == 1
         ):
             true_positive += 1
 
-        # Correctly predicted KEEP
+        # Correct KEEP prediction
         elif (
             actual_value == 0
             and predicted_value == 0
         ):
             true_negative += 1
 
-        # Model removed something
-        # that should have been kept
+        # Removed a gate that should have been kept
         elif (
             actual_value == 0
             and predicted_value == 1
         ):
             false_positive += 1
 
-        # Model kept something
-        # that should have been removed
+        # Kept a gate that should have been removed
         elif (
             actual_value == 1
             and predicted_value == 0
@@ -128,13 +130,16 @@ def calculate_binary_metrics(
             false_negative += 1
 
 
+    # --------------------------------------------------------
+    # Accuracy
+    # --------------------------------------------------------
+
     total = (
         true_positive
         + true_negative
         + false_positive
         + false_negative
     )
-
 
     if total == 0:
         accuracy = 0.0
@@ -145,6 +150,10 @@ def calculate_binary_metrics(
             + true_negative
         ) / total
 
+
+    # --------------------------------------------------------
+    # Precision
+    # --------------------------------------------------------
 
     precision_denominator = (
         true_positive
@@ -161,6 +170,10 @@ def calculate_binary_metrics(
         )
 
 
+    # --------------------------------------------------------
+    # Recall
+    # --------------------------------------------------------
+
     recall_denominator = (
         true_positive
         + false_negative
@@ -175,6 +188,10 @@ def calculate_binary_metrics(
             / recall_denominator
         )
 
+
+    # --------------------------------------------------------
+    # F1
+    # --------------------------------------------------------
 
     if (
         precision + recall
@@ -196,15 +213,29 @@ def calculate_binary_metrics(
 
 
     return {
-        "accuracy": accuracy,
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
+        "accuracy":
+            accuracy,
 
-        "true_positive": true_positive,
-        "true_negative": true_negative,
-        "false_positive": false_positive,
-        "false_negative": false_negative
+        "precision":
+            precision,
+
+        "recall":
+            recall,
+
+        "f1":
+            f1,
+
+        "true_positive":
+            true_positive,
+
+        "true_negative":
+            true_negative,
+
+        "false_positive":
+            false_positive,
+
+        "false_negative":
+            false_negative
     }
 
 
@@ -219,19 +250,39 @@ def evaluate_single_circuit(
     prediction_threshold=0.5
 ):
     """
-    Evaluate the ML optimizer on one circuit.
+    Evaluate one ML-generated circuit optimization.
 
-    Steps:
+    IMPORTANT:
 
-    1. Get rule-based correct mask
-    2. Get ML predicted mask
-    3. Build ML optimized circuit
-    4. Measure gate reduction
-    5. Measure fidelity
+    `fidelity_threshold` is retained only for backward
+    compatibility with existing main.py calls.
+
+    It is NOT used as the safety criterion.
+
+    Safety is determined using exact operator equivalence
+    up to global phase.
+
+    Evaluation steps:
+
+        1. Generate the rule-based teacher mask.
+        2. Generate the CNN removal mask.
+        3. Compare the masks.
+        4. Build the ML-proposed optimized circuit.
+        5. Calculate gate reduction.
+        6. Verify full operator equivalence.
+        7. Mark the ML proposal as safe or unsafe.
+
+    The ML proposal is safe ONLY when complete operator
+    equivalence can be established.
     """
 
+    # Prevent accidental assumption that this parameter
+    # controls the new safety mechanism.
+    _ = fidelity_threshold
+
+
     # --------------------------------------------------------
-    # Correct answer from rule-based teacher
+    # Rule-based teacher mask
     # --------------------------------------------------------
 
     actual_mask = get_redundancy_mask(
@@ -253,7 +304,7 @@ def evaluate_single_circuit(
 
 
     # --------------------------------------------------------
-    # Make lengths equal
+    # Align mask lengths
     # --------------------------------------------------------
 
     comparison_length = min(
@@ -271,7 +322,7 @@ def evaluate_single_circuit(
 
 
     # --------------------------------------------------------
-    # Exact mask accuracy
+    # Exact mask match
     # --------------------------------------------------------
 
     exact_match = (
@@ -281,7 +332,7 @@ def evaluate_single_circuit(
 
 
     # --------------------------------------------------------
-    # Build optimized circuit
+    # Build ML-proposed optimized circuit
     # --------------------------------------------------------
 
     optimized_circuit, _, _ = (
@@ -324,57 +375,117 @@ def evaluate_single_circuit(
 
 
     # --------------------------------------------------------
-    # Fidelity
+    # EXACT OPERATOR EQUIVALENCE
     # --------------------------------------------------------
 
     try:
 
-        fidelity = compare_circuits(
-            circuit,
-            optimized_circuit
+        equivalence_result = (
+            check_circuit_equivalence(
+                circuit,
+                optimized_circuit
+            )
         )
 
-        fidelity = float(
-            fidelity
+        operator_equivalent = bool(
+            equivalence_result.get(
+                "equivalent",
+                False
+            )
         )
 
-    except Exception:
+        equivalence_error = (
+            equivalence_result.get(
+                "equivalence_error",
+                None
+            )
+        )
 
-        # If simulation fails, mark fidelity as invalid
-        fidelity = np.nan
+        equivalence_reason = (
+            equivalence_result.get(
+                "reason",
+                "No reason provided."
+            )
+        )
+
+    except Exception as error:
+
+        # Fail-safe policy:
+        #
+        # If equivalence cannot be established,
+        # the optimization is NOT considered safe.
+
+        operator_equivalent = False
+
+        equivalence_error = None
+
+        equivalence_reason = (
+            "Operator-equivalence verification "
+            f"failed: {error}"
+        )
 
 
     # --------------------------------------------------------
-    # State preservation check
+    # SAFE ML PROPOSAL
+    # --------------------------------------------------------
+    #
+    # A useful optimization must:
+    #
+    # 1. Remove at least one gate
+    # 2. Preserve the COMPLETE circuit operator
+    #
+    # A circuit that removes zero gates can still be
+    # equivalent, but it is not counted as a successful
+    # optimization.
     # --------------------------------------------------------
 
-    if np.isnan(fidelity):
-
-        fidelity_success = False
-
-    else:
-
-        fidelity_success = (
-            fidelity
-            >= fidelity_threshold
-        )
+    safe_optimization = (
+        removed_gates > 0
+        and operator_equivalent
+    )
 
 
     return {
-        "actual_mask": actual_mask,
-        "predicted_mask": predicted_mask,
-        "probabilities": probabilities,
 
-        "exact_match": exact_match,
+        # Teacher / CNN outputs
+        "actual_mask":
+            actual_mask,
 
-        "original_gates": original_gates,
-        "optimized_gates": optimized_gates,
-        "removed_gates": removed_gates,
+        "predicted_mask":
+            predicted_mask,
 
-        "reduction_percentage": reduction_percentage,
+        "probabilities":
+            probabilities,
 
-        "fidelity": fidelity,
-        "fidelity_success": fidelity_success
+        # Classification
+        "exact_match":
+            exact_match,
+
+        # Gate statistics
+        "original_gates":
+            original_gates,
+
+        "optimized_gates":
+            optimized_gates,
+
+        "removed_gates":
+            removed_gates,
+
+        "reduction_percentage":
+            reduction_percentage,
+
+        # Quantum safety
+        "operator_equivalent":
+            operator_equivalent,
+
+        "equivalence_error":
+            equivalence_error,
+
+        "equivalence_reason":
+            equivalence_reason,
+
+        "safe_optimization":
+            safe_optimization
     }
 
 
@@ -390,34 +501,68 @@ def evaluate_gate_optimizer(
     verbose=False
 ):
     """
-    Evaluate the trained CNN on many unseen circuits.
+    Evaluate the trained CNN on unseen circuits.
 
     Calculates:
 
-    - Gate-level accuracy
-    - Precision
-    - Recall
-    - F1 score
-    - Exact-mask accuracy
-    - Average gate reduction
-    - Average fidelity
-    - Fidelity success rate
-    - Safe optimization rate
+        Gate-level:
+            - Accuracy
+            - Precision
+            - Recall
+            - F1 score
+            - Confusion counts
+
+        Circuit-level:
+            - Exact-mask accuracy
+
+        Optimization:
+            - Gate reduction
+
+        Quantum correctness:
+            - Operator-equivalent proposals
+            - Non-equivalent proposals
+            - Operator-equivalence success rate
+            - Safe optimization rate
+
+    IMPORTANT:
+
+    Operator equivalence, not statevector fidelity from
+    |0...0>, is used to evaluate quantum correctness.
     """
+
+    # Backward compatibility only.
+    _ = fidelity_threshold
+
+
+    # --------------------------------------------------------
+    # Classification storage
+    # --------------------------------------------------------
 
     all_actual = []
     all_predicted = []
 
     exact_matches = 0
 
+
+    # --------------------------------------------------------
+    # Gate statistics
+    # --------------------------------------------------------
+
     total_original_gates = 0
     total_optimized_gates = 0
     total_removed_gates = 0
 
     reduction_percentages = []
-    fidelities = []
 
-    fidelity_successes = 0
+
+    # --------------------------------------------------------
+    # Operator-equivalence statistics
+    # --------------------------------------------------------
+
+    equivalent_proposals = 0
+    non_equivalent_proposals = 0
+
+    verification_failures = 0
 
     safe_optimizations = 0
 
@@ -456,7 +601,7 @@ def evaluate_gate_optimizer(
 
 
         # ----------------------------------------------------
-        # Exact mask
+        # Exact mask accuracy
         # ----------------------------------------------------
 
         if result["exact_match"]:
@@ -488,44 +633,51 @@ def evaluate_gate_optimizer(
 
 
         # ----------------------------------------------------
-        # Fidelity
+        # Operator equivalence
         # ----------------------------------------------------
 
-        if not np.isnan(
-            result["fidelity"]
+        if result[
+            "operator_equivalent"
+        ]:
+
+            equivalent_proposals += 1
+
+        else:
+
+            non_equivalent_proposals += 1
+
+
+        # ----------------------------------------------------
+        # Verification failures
+        # ----------------------------------------------------
+
+        reason = result[
+            "equivalence_reason"
+        ]
+
+        if (
+            isinstance(reason, str)
+            and
+            "verification failed"
+            in reason.lower()
         ):
 
-            fidelities.append(
-                result["fidelity"]
-            )
-
-
-        if result["fidelity_success"]:
-
-            fidelity_successes += 1
+            verification_failures += 1
 
 
         # ----------------------------------------------------
         # Safe optimization
         # ----------------------------------------------------
-        #
-        # We define a safe optimization as:
-        #
-        # 1. At least one gate was removed
-        # AND
-        # 2. Fidelity remained above threshold
-        #
 
-        if (
-            result["removed_gates"] > 0
-            and result["fidelity_success"]
-        ):
+        if result[
+            "safe_optimization"
+        ]:
 
             safe_optimizations += 1
 
 
         # ----------------------------------------------------
-        # Optional debugging output
+        # Optional debugging
         # ----------------------------------------------------
 
         if verbose:
@@ -535,28 +687,38 @@ def evaluate_gate_optimizer(
             )
 
             print(
-                "Actual:",
+                "Actual mask:",
                 result["actual_mask"]
             )
 
             print(
-                "Predicted:",
+                "Predicted mask:",
                 result["predicted_mask"]
             )
 
             print(
-                "Removed:",
+                "Removed gates:",
                 result["removed_gates"]
             )
 
             print(
-                "Fidelity:",
-                result["fidelity"]
+                "Operator equivalent:",
+                result["operator_equivalent"]
+            )
+
+            print(
+                "Equivalence error:",
+                result["equivalence_error"]
+            )
+
+            print(
+                "Safe optimization:",
+                result["safe_optimization"]
             )
 
 
     # ========================================================
-    # CALCULATE CLASSIFICATION METRICS
+    # CLASSIFICATION METRICS
     # ========================================================
 
     classification_metrics = (
@@ -595,8 +757,11 @@ def evaluate_gate_optimizer(
 
     else:
 
-        average_gate_reduction = float(
-            np.mean(
+        average_gate_reduction = (
+            sum(
+                reduction_percentages
+            )
+            / len(
                 reduction_percentages
             )
         )
@@ -619,34 +784,33 @@ def evaluate_gate_optimizer(
 
 
     # ========================================================
-    # AVERAGE FIDELITY
-    # ========================================================
-
-    if len(fidelities) == 0:
-
-        average_fidelity = 0.0
-
-    else:
-
-        average_fidelity = float(
-            np.mean(
-                fidelities
-            )
-        )
-
-
-    # ========================================================
-    # FIDELITY SUCCESS RATE
+    # OPERATOR-EQUIVALENCE SUCCESS RATE
     # ========================================================
 
     if evaluated_circuits == 0:
 
-        fidelity_success_rate = 0.0
+        operator_equivalence_rate = 0.0
 
     else:
 
-        fidelity_success_rate = (
-            fidelity_successes
+        operator_equivalence_rate = (
+            equivalent_proposals
+            / evaluated_circuits
+        )
+
+
+    # ========================================================
+    # NON-EQUIVALENCE RATE
+    # ========================================================
+
+    if evaluated_circuits == 0:
+
+        non_equivalence_rate = 0.0
+
+    else:
+
+        non_equivalence_rate = (
+            non_equivalent_proposals
             / evaluated_circuits
         )
 
@@ -668,14 +832,18 @@ def evaluate_gate_optimizer(
 
 
     # ========================================================
-    # FINAL REPORT
+    # FINAL RESULTS
     # ========================================================
 
     results = {
 
-        "test_circuits": evaluated_circuits,
+        "test_circuits":
+            evaluated_circuits,
 
+        # ----------------------------------------------------
         # Gate classification
+        # ----------------------------------------------------
+
         "gate_accuracy":
             classification_metrics[
                 "accuracy"
@@ -696,7 +864,10 @@ def evaluate_gate_optimizer(
                 "f1"
             ],
 
+        # ----------------------------------------------------
         # Confusion values
+        # ----------------------------------------------------
+
         "true_positive":
             classification_metrics[
                 "true_positive"
@@ -717,11 +888,17 @@ def evaluate_gate_optimizer(
                 "false_negative"
             ],
 
-        # Circuit-level
+        # ----------------------------------------------------
+        # Circuit-level performance
+        # ----------------------------------------------------
+
         "exact_mask_accuracy":
             exact_mask_accuracy,
 
-        # Optimization
+        # ----------------------------------------------------
+        # Gate optimization
+        # ----------------------------------------------------
+
         "total_original_gates":
             total_original_gates,
 
@@ -737,14 +914,32 @@ def evaluate_gate_optimizer(
         "overall_gate_reduction":
             overall_gate_reduction,
 
-        # Fidelity
-        "average_fidelity":
-            average_fidelity,
+        # ----------------------------------------------------
+        # Operator-equivalence safety
+        # ----------------------------------------------------
 
-        "fidelity_success_rate":
-            fidelity_success_rate,
+        "equivalent_proposals":
+            equivalent_proposals,
 
-        # Safe optimization
+        "non_equivalent_proposals":
+            non_equivalent_proposals,
+
+        "verification_failures":
+            verification_failures,
+
+        "operator_equivalence_rate":
+            operator_equivalence_rate,
+
+        "non_equivalence_rate":
+            non_equivalence_rate,
+
+        # ----------------------------------------------------
+        # Safe useful optimization
+        # ----------------------------------------------------
+
+        "safe_optimizations":
+            safe_optimizations,
+
         "safe_optimization_rate":
             safe_optimization_rate
     }
@@ -757,14 +952,25 @@ def evaluate_gate_optimizer(
 # PRINT EVALUATION REPORT
 # ============================================================
 
-def print_evaluation_report(results):
+def print_evaluation_report(
+    results
+):
     """
     Display evaluation metrics in a clean format.
     """
 
-    print("\n============================================")
-    print("CNN GATE OPTIMIZER EVALUATION")
-    print("============================================")
+    print(
+        "\n============================================"
+    )
+
+    print(
+        "CNN GATE OPTIMIZER EVALUATION"
+    )
+
+    print(
+        "============================================"
+    )
+
 
     print(
         "\nTest circuits:",
@@ -772,7 +978,13 @@ def print_evaluation_report(results):
     )
 
 
-    print("\n--- GATE-LEVEL CLASSIFICATION ---")
+    # ========================================================
+    # GATE CLASSIFICATION
+    # ========================================================
+
+    print(
+        "\n--- GATE-LEVEL CLASSIFICATION ---"
+    )
 
     print(
         f"Accuracy:  "
@@ -795,7 +1007,13 @@ def print_evaluation_report(results):
     )
 
 
-    print("\n--- CONFUSION COUNTS ---")
+    # ========================================================
+    # CONFUSION COUNTS
+    # ========================================================
+
+    print(
+        "\n--- CONFUSION COUNTS ---"
+    )
 
     print(
         "True Positive:",
@@ -818,7 +1036,13 @@ def print_evaluation_report(results):
     )
 
 
-    print("\n--- CIRCUIT-LEVEL PERFORMANCE ---")
+    # ========================================================
+    # CIRCUIT-LEVEL PERFORMANCE
+    # ========================================================
+
+    print(
+        "\n--- CIRCUIT-LEVEL PERFORMANCE ---"
+    )
 
     print(
         f"Exact mask accuracy: "
@@ -826,7 +1050,13 @@ def print_evaluation_report(results):
     )
 
 
-    print("\n--- CIRCUIT OPTIMIZATION ---")
+    # ========================================================
+    # CIRCUIT OPTIMIZATION
+    # ========================================================
+
+    print(
+        "\n--- CIRCUIT OPTIMIZATION ---"
+    )
 
     print(
         "Original gates:",
@@ -834,36 +1064,66 @@ def print_evaluation_report(results):
     )
 
     print(
-        "Optimized gates:",
+        "ML proposed gates:",
         results["total_optimized_gates"]
     )
 
     print(
-        "Removed gates:",
+        "ML proposed removed gates:",
         results["total_removed_gates"]
     )
 
     print(
-        f"Average gate reduction: "
+        f"Average proposed gate reduction: "
         f"{results['average_gate_reduction']:.2f}%"
     )
 
     print(
-        f"Overall gate reduction: "
+        f"Overall proposed gate reduction: "
         f"{results['overall_gate_reduction']:.2f}%"
     )
 
 
-    print("\n--- QUANTUM VALIDATION ---")
+    # ========================================================
+    # OPERATOR EQUIVALENCE
+    # ========================================================
 
     print(
-        f"Average fidelity: "
-        f"{results['average_fidelity']:.4f}"
+        "\n--- OPERATOR EQUIVALENCE VALIDATION ---"
     )
 
     print(
-        f"Fidelity success rate: "
-        f"{results['fidelity_success_rate'] * 100:.2f}%"
+        "Equivalent ML proposals:",
+        results["equivalent_proposals"]
+    )
+
+    print(
+        "Non-equivalent ML proposals:",
+        results["non_equivalent_proposals"]
+    )
+
+    print(
+        "Verification failures:",
+        results["verification_failures"]
+    )
+
+    print(
+        f"Operator equivalence success rate: "
+        f"{results['operator_equivalence_rate'] * 100:.2f}%"
+    )
+
+
+    # ========================================================
+    # SAFE OPTIMIZATION
+    # ========================================================
+
+    print(
+        "\n--- SAFE OPTIMIZATION PERFORMANCE ---"
+    )
+
+    print(
+        "Safe useful optimizations:",
+        results["safe_optimizations"]
     )
 
     print(
@@ -872,10 +1132,20 @@ def print_evaluation_report(results):
     )
 
 
-    print("\n============================================")
-    print("EVALUATION COMPLETED")
-    print("============================================")
-    # ============================================================
+    print(
+        "\n============================================"
+    )
+
+    print(
+        "EVALUATION COMPLETED"
+    )
+
+    print(
+        "============================================"
+    )
+
+
+# ============================================================
 # THRESHOLD SAFETY EVALUATION
 # ============================================================
 
@@ -889,17 +1159,23 @@ def evaluate_thresholds(
     Test the same trained model using different
     gate-removal probability thresholds.
 
-    A higher threshold makes the optimizer
-    more conservative.
+    IMPORTANT:
 
-    Example:
+    The threshold controls the CNN's REMOVE decision.
 
-    threshold = 0.50
-    -> remove gate if probability >= 50%
+    It does NOT control the operator-equivalence safety
+    verification.
 
-    threshold = 0.90
-    -> remove gate only if probability >= 90%
+    A higher prediction threshold generally makes the
+    ML optimizer more conservative.
+
+    Operator equivalence is checked independently for
+    every proposed circuit.
     """
+
+    # Backward compatibility only.
+    _ = fidelity_threshold
+
 
     if thresholds is None:
 
@@ -911,17 +1187,30 @@ def evaluate_thresholds(
             0.90
         ]
 
+
     all_results = []
 
-    print("\n==============================================================")
-    print("THRESHOLD SAFETY ANALYSIS")
-    print("==============================================================")
+
+    print(
+        "\n=============================================================="
+    )
+
+    print(
+        "THRESHOLD SAFETY ANALYSIS"
+    )
+
+    print(
+        "=============================================================="
+    )
+
 
     for threshold in thresholds:
 
         print(
-            f"\nTesting threshold: {threshold:.2f}"
+            f"\nTesting threshold: "
+            f"{threshold:.2f}"
         )
+
 
         results = evaluate_gate_optimizer(
             model,
@@ -931,23 +1220,32 @@ def evaluate_thresholds(
             verbose=False
         )
 
-        results["threshold"] = threshold
+
+        results[
+            "threshold"
+        ] = threshold
+
 
         all_results.append(
             results
         )
+
 
     # --------------------------------------------------------
     # Print comparison table
     # --------------------------------------------------------
 
     print("\n")
+
     print(
         "Threshold | Accuracy | Precision | Recall | "
-        "F1 | Fidelity | Fidelity Success | Reduction"
+        "F1 | Operator Eq. | Safe Opt. | Reduction"
     )
 
-    print("-" * 100)
+    print(
+        "-" * 104
+    )
+
 
     for result in all_results:
 
@@ -957,13 +1255,15 @@ def evaluate_thresholds(
             f"{result['precision'] * 100:^9.2f}% | "
             f"{result['recall'] * 100:^6.2f}% | "
             f"{result['f1_score'] * 100:^6.2f}% | "
-            f"{result['average_fidelity']:^8.4f} | "
-            f"{result['fidelity_success_rate'] * 100:^15.2f}% | "
+            f"{result['operator_equivalence_rate'] * 100:^11.2f}% | "
+            f"{result['safe_optimization_rate'] * 100:^9.2f}% | "
             f"{result['overall_gate_reduction']:^8.2f}%"
         )
+
 
     print(
         "\n=============================================================="
     )
+
 
     return all_results
