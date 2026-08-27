@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 from qiskit import QuantumCircuit
 
 from src.gate_optimizer import (
@@ -682,6 +683,37 @@ def build_circuit_from_text(circuit_text, num_qubits):
 
     return circuit
 
+def scroll_to_results():
+    """
+    Automatically scroll the browser to the optimization
+    results after the ML pipeline finishes.
+    """
+
+    components.html(
+        """
+        <script>
+        setTimeout(function() {
+
+            const parentDocument =
+                window.parent.document;
+
+            const target =
+                parentDocument.getElementById(
+                    "optimization-results"
+                );
+
+            if (target) {
+                target.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start"
+                });
+            }
+
+        }, 350);
+        </script>
+        """,
+        height=0,
+    )
 
 def circuit_to_text(circuit):
     return str(circuit.draw(output="text"))
@@ -840,6 +872,8 @@ def pipeline_html():
 if "optimization_result" not in st.session_state:
     st.session_state.optimization_result = None
 
+if "scroll_to_results" not in st.session_state:
+    st.session_state.scroll_to_results = False
 
 # ============================================================
 # LOAD MODEL + METRICS
@@ -1059,12 +1093,25 @@ if optimize_clicked and circuit_valid and model_loaded:
     else:
         scan_slot.empty()
 
+    st.session_state.scroll_to_results = True
+
 
 # ============================================================
 # RESULTS WORKSPACE
 # ============================================================
 
 with right:
+
+    st.markdown(
+        """
+        <div
+            id="optimization-results"
+            style="scroll-margin-top: 25px;">
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     result = st.session_state.optimization_result
 
     # Do not show stale results when the current circuit shape differs.
@@ -1163,6 +1210,15 @@ with right:
                     "The candidate was not operator-equivalent to the original circuit, so the system rejected it and restored the original."
                 )
 
+# ============================================================
+# AUTO-SCROLL TO NEW RESULTS
+# ============================================================
+
+if st.session_state.scroll_to_results:
+
+    scroll_to_results()
+
+    st.session_state.scroll_to_results = False
 
 # ============================================================
 # TECHNICAL DETAILS
