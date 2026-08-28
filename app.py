@@ -438,6 +438,47 @@ h1, h2, h3 {
 .q-scan-text { color:var(--q-primary); font:700 14px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; letter-spacing:.13em; }
 .q-scan-sub { color:#9292A1; font-size:.8rem; }
 
+
+/* ---------- LIVE OPTIMIZATION PIPELINE ---------- */
+.q-live-pipeline {
+    position:relative;
+    overflow:hidden;
+    min-height:235px;
+    border:1px solid rgba(192,193,255,.30);
+    border-radius:12px;
+    padding:22px;
+    background:radial-gradient(circle at 85% 15%, rgba(128,131,255,.10), transparent 34%),linear-gradient(180deg,rgba(12,15,20,.98),rgba(7,10,15,.98));
+    box-shadow:0 18px 48px rgba(0,0,0,.24);
+}
+.q-live-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; }
+.q-live-title { color:#F2F2F7; font-size:1.05rem; font-weight:760; }
+.q-live-status { color:var(--q-primary); font:700 10px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.10em; }
+.q-live-track { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+.q-live-step { min-height:112px; padding:14px 12px; border:1px solid rgba(70,76,90,.52); border-radius:8px; background:rgba(10,13,18,.72); transition:.3s ease; }
+.q-live-step.active { border-color:rgba(192,193,255,.62); background:rgba(128,131,255,.09); box-shadow:0 0 24px rgba(128,131,255,.09); }
+.q-live-step.done { border-color:rgba(16,185,129,.34); background:rgba(16,185,129,.035); }
+.q-live-num { color:#7E8290; font:700 10px/1 ui-monospace,SFMono-Regular,Menlo,monospace; margin-bottom:10px; }
+.q-live-step.active .q-live-num { color:var(--q-primary); }
+.q-live-step.done .q-live-num { color:#74D7B1; }
+.q-live-label { color:#D8D8E1; font-size:.82rem; font-weight:680; margin-bottom:7px; }
+.q-live-desc { color:#8F909D; font-size:.72rem; line-height:1.45; }
+.q-live-progress { height:4px; margin-top:16px; background:#20252E; border-radius:999px; overflow:hidden; }
+.q-live-progress span { display:block; height:100%; width:var(--w); background:linear-gradient(90deg,#7074EE,#C0C1FF); border-radius:999px; transition:width .45s ease; }
+.q-live-pulse { display:inline-block; width:7px; height:7px; border-radius:99px; background:#AEB0FF; box-shadow:0 0 12px rgba(192,193,255,.8); margin-right:7px; animation:qPulseDot 1.2s ease-in-out infinite; }
+
+/* ---------- FINAL OUTCOME ---------- */
+.q-outcome { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(190px,.7fr); gap:16px; align-items:stretch; margin:0 0 16px 0; }
+.q-outcome-main, .q-outcome-score { border:1px solid rgba(192,193,255,.22); border-radius:10px; background:linear-gradient(180deg,rgba(13,16,22,.98),rgba(8,11,15,.98)); padding:18px 20px; }
+.q-outcome.rejected .q-outcome-main, .q-outcome.rejected .q-outcome-score { border-color:rgba(244,63,94,.28); }
+.q-outcome-kicker { color:#8F92A4; font:700 10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.10em; text-transform:uppercase; }
+.q-outcome-title { margin-top:8px; color:#F2F2F7; font-size:1.2rem; font-weight:780; line-height:1.25; }
+.q-outcome-copy { margin-top:7px; color:#9C9CA8; font-size:.82rem; line-height:1.5; }
+.q-outcome-score { display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; }
+.q-outcome-number { color:var(--q-primary); font-size:2.6rem; line-height:1; font-weight:800; }
+.q-outcome.rejected .q-outcome-number { color:#FF9DAF; font-size:1.55rem; }
+.q-outcome-label { margin-top:7px; color:#9293A0; font:700 10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; text-transform:uppercase; }
+@media (max-width: 900px) { .q-live-track { grid-template-columns:repeat(2,minmax(0,1fr)); } .q-outcome { grid-template-columns:1fr; } }
+
 /* ---------- CONFIDENCE ROWS ---------- */
 .q-confidence-row {
     display:grid;
@@ -816,6 +857,63 @@ def safety_html(accepted):
 """
 
 
+def live_pipeline_html(active_step, status_text):
+    steps = [
+        ("Encode Circuit", "Convert gates and qubit positions into the model input tensor."),
+        ("CNN Inference", "Predict a removal score for every real gate position."),
+        ("Build Proposal", "Apply the threshold and construct the ML candidate circuit."),
+        ("Verify Operator", "Check the candidate against the original up to global phase."),
+    ]
+    cards = []
+    for i, (title, desc) in enumerate(steps, start=1):
+        if i < active_step:
+            state, symbol = "done", "✓"
+        elif i == active_step:
+            state, symbol = "active", f"0{i}"
+        else:
+            state, symbol = "", f"0{i}"
+        cards.append(
+            f'<div class="q-live-step {state}"><div class="q-live-num">{symbol}</div>'
+            f'<div class="q-live-label">{title}</div><div class="q-live-desc">{desc}</div></div>'
+        )
+    progress = max(8, min(100, active_step * 25))
+    return f"""
+<div class="q-live-pipeline q-fade-2">
+  <div class="q-live-head">
+    <div><div class="q-eyebrow">LIVE OPTIMIZATION PIPELINE</div><div class="q-live-title">ML proposes. Mathematics verifies.</div></div>
+    <div class="q-live-status"><span class="q-live-pulse"></span>{status_text}</div>
+  </div>
+  <div class="q-live-track">{''.join(cards)}</div>
+  <div class="q-live-progress"><span style="--w:{progress}%"></span></div>
+</div>
+"""
+
+
+def outcome_html(result):
+    if result["accepted"]:
+        removed = result["original_gate_count"] - result["final_gate_count"]
+        return f"""
+<div class="q-outcome q-fade-2">
+  <div class="q-outcome-main">
+    <div class="q-outcome-kicker">Optimization Result</div>
+    <div class="q-outcome-title">Verified circuit reduction completed successfully.</div>
+    <div class="q-outcome-copy">The CNN proposed removing {removed} gate(s), and the resulting circuit passed full operator-equivalence verification. The optimized circuit is safe to return.</div>
+  </div>
+  <div class="q-outcome-score"><div class="q-outcome-number">{result['reduction']:.1f}%</div><div class="q-outcome-label">Safe Gate Reduction</div></div>
+</div>
+"""
+    return """
+<div class="q-outcome rejected q-fade-2">
+  <div class="q-outcome-main">
+    <div class="q-outcome-kicker">Safety Intervention</div>
+    <div class="q-outcome-title">ML proposal rejected. Original circuit restored.</div>
+    <div class="q-outcome-copy">The neural network suggested a smaller circuit, but the complete quantum operation changed. The verification layer blocked the unsafe optimization automatically.</div>
+  </div>
+  <div class="q-outcome-score"><div class="q-outcome-number">BLOCKED</div><div class="q-outcome-label">Unsafe Proposal</div></div>
+</div>
+"""
+
+
 def confidence_html(circuit, probabilities, threshold):
     rows = []
     for index, probability in enumerate(probabilities):
@@ -1027,39 +1125,34 @@ with left:
 
 if optimize_clicked and circuit_valid and model_loaded:
     scan_slot = right.empty()
-    scan_slot.markdown(
-        """
-<div class="q-scan">
-  <div class="q-scan-icon">◈</div>
-  <div class="q-scan-text">SCANNING CIRCUIT...</div>
-  <div class="q-scan-sub">CNN inference → candidate generation → operator verification</div>
-</div>
-""",
-        unsafe_allow_html=True,
-    )
-
-    # A deliberate cinematic pause lets the scanline animation complete a visible pass
-    # during live demos. It does not alter model inference or backend results.
-    time.sleep(2.35)
 
     try:
+        scan_slot.markdown(live_pipeline_html(1, "ENCODING CIRCUIT"), unsafe_allow_html=True)
+        time.sleep(0.55)
+
+        scan_slot.markdown(live_pipeline_html(2, "RUNNING CNN INFERENCE"), unsafe_allow_html=True)
         predicted_mask, probabilities = predict_gate_mask(
             model,
             user_circuit,
             threshold=ML_THRESHOLD,
         )
+        time.sleep(0.65)
 
+        scan_slot.markdown(live_pipeline_html(3, "BUILDING ML PROPOSAL"), unsafe_allow_html=True)
         candidate_circuit, _, _ = ml_optimize_circuit(
             user_circuit,
             model,
             threshold=ML_THRESHOLD,
         )
+        time.sleep(0.55)
 
+        scan_slot.markdown(live_pipeline_html(4, "VERIFYING EQUIVALENCE"), unsafe_allow_html=True)
         final_circuit, equivalence_metric, accepted = validate_optimization(
             user_circuit,
             candidate_circuit,
-            fidelity_threshold=0.99,  # retained by backend for compatibility
+            fidelity_threshold=0.99,
         )
+        time.sleep(0.80)
 
         original_gate_count = len(user_circuit.data)
         proposed_gate_count = len(candidate_circuit.data)
@@ -1091,6 +1184,9 @@ if optimize_clicked and circuit_valid and model_loaded:
         scan_slot.empty()
         right.error(f"Optimization failed: {error}")
     else:
+        completion = "VERIFIED — OPTIMIZATION ACCEPTED" if accepted else "SAFETY CHECK BLOCKED PROPOSAL"
+        scan_slot.markdown(live_pipeline_html(4, completion), unsafe_allow_html=True)
+        time.sleep(0.35)
         scan_slot.empty()
 
     st.session_state.scroll_to_results = True
@@ -1162,6 +1258,7 @@ with right:
         )
 
         st.markdown(safety_html(result["accepted"]), unsafe_allow_html=True)
+        st.markdown(outcome_html(result), unsafe_allow_html=True)
 
         st.markdown("<div class='q-card-title q-fade-3'>Circuit Visualization</div>", unsafe_allow_html=True)
         c1, c2, c3 = st.columns(3, gap="medium")
