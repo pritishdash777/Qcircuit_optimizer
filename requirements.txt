@@ -1,6 +1,7 @@
+streamlit
 qiskit
 qiskit-aer
-pytorch
+torch
 numpy
 networkx
 matplotlib
