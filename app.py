@@ -10,7 +10,7 @@ from pathlib import Path
 import streamlit as st
 import streamlit.components.v1 as components
 from qiskit import QuantumCircuit
-
+from qiskit.quantum_info import Statevector
 from src.gate_optimizer import (
     GateOptimizerNN,
     predict_gate_mask,
@@ -770,6 +770,141 @@ def scroll_to_results():
 def circuit_to_text(circuit):
     return str(circuit.draw(output="text"))
 
+def simulate_probabilities(circuit):
+    """
+    Simulate a quantum circuit using Qiskit's Statevector
+    and return basis-state probabilities.
+
+    This is intended for circuits without measurements.
+    """
+    try:
+        # Create quantum state after applying the circuit
+        state = Statevector.from_instruction(circuit)
+
+        # Convert statevector into probabilities
+        probabilities = state.probabilities_dict()
+
+        # Convert values to normal floats
+        probabilities = {
+            str(state_name): float(probability)
+            for state_name, probability in probabilities.items()
+        }
+
+        return probabilities
+
+    except Exception as error:
+        raise ValueError(
+            f"Quantum simulation failed: {error}"
+        ) from error
+
+
+def simulation_html(probabilities, title="Simulation Result"):
+    """
+    Create a visual probability distribution card.
+    """
+
+    if not probabilities:
+        return """
+        <div class="q-card">
+            <div class="q-card-title">No simulation data</div>
+        </div>
+        """
+
+    # Sort basis states so 00, 01, 10, 11 appear naturally
+    items = sorted(probabilities.items())
+
+    rows = []
+
+    for state, probability in items:
+
+        percentage = probability * 100
+
+        # Ignore extremely tiny floating point values
+        if percentage < 0.0001:
+            percentage = 0.0
+
+        rows.append(
+            f"""
+            <div style="
+                display:grid;
+                grid-template-columns:70px 1fr 72px;
+                gap:12px;
+                align-items:center;
+                margin:11px 0;
+            ">
+
+                <div style="
+                    font-family:ui-monospace, SFMono-Regular, Menlo, monospace;
+                    font-size:13px;
+                    color:var(--q-text);
+                ">
+                    |{state}⟩
+                </div>
+
+                <div style="
+                    height:8px;
+                    background:#232833;
+                    border-radius:999px;
+                    overflow:hidden;
+                ">
+                    <div style="
+                        width:{percentage:.2f}%;
+                        height:100%;
+                        border-radius:999px;
+                        background:linear-gradient(
+                            90deg,
+                            var(--q-primary-2),
+                            var(--q-primary)
+                        );
+                        animation:qProgress 1.3s ease both;
+                    ">
+                    </div>
+                </div>
+
+                <div style="
+                    text-align:right;
+                    font-family:ui-monospace, SFMono-Regular, Menlo, monospace;
+                    color:var(--q-primary);
+                    font-weight:700;
+                    font-size:12px;
+                ">
+                    {percentage:.2f}%
+                </div>
+
+            </div>
+            """
+        )
+
+    return f"""
+    <div class="q-card q-fade-4">
+
+        <div style="
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            margin-bottom:14px;
+        ">
+
+            <div>
+                <div class="q-card-title">
+                    {title}
+                </div>
+
+                <div class="q-eyebrow">
+                    STATEVECTOR PROBABILITY DISTRIBUTION
+                </div>
+            </div>
+
+            <div class="q-chip">
+                QUANTUM SIMULATION
+            </div>
+
+        </div>
+
+        {''.join(rows)}
+
+    </div>
+    """
 
 def circuit_preflight(circuit):
     """Protect the fixed-size CNN encoder from unsupported oversized inputs."""
@@ -1428,7 +1563,58 @@ with right:
 
         bottom_left, bottom_right = st.columns([1.05, 0.95], gap="large")
 
-        with bottom_left:
+# ============================================================
+# QUANTUM SIMULATION
+# ============================================================
+
+st.markdown(
+    "<div class='q-card-title q-fade-4' style='margin-top:18px'>Quantum Simulation</div>",
+    unsafe_allow_html=True,
+)
+
+st.caption(
+    "Statevector simulation showing the probability distribution "
+    "of the original and final verified quantum circuits."
+)
+
+try:
+    original_probabilities = simulate_probabilities(
+        result["original"]
+    )
+
+    final_probabilities = simulate_probabilities(
+        result["final"]
+    )
+
+    sim_left, sim_right = st.columns(
+        2,
+        gap="large"
+    )
+
+    with sim_left:
+        st.markdown(
+            simulation_html(
+                original_probabilities,
+                "Original Circuit"
+            ),
+            unsafe_allow_html=True,
+        )
+
+    with sim_right:
+        st.markdown(
+            simulation_html(
+                final_probabilities,
+                "Final Verified Circuit"
+            ),
+            unsafe_allow_html=True,
+        )
+
+except Exception as error:
+    st.warning(
+        f"Simulation unavailable: {error}"
+    )
+
+    with bottom_left:
             st.markdown(
                 confidence_html(
                     result["original"],
@@ -1442,8 +1628,8 @@ with right:
                 st.code(str(result["predicted_mask"]), language="text")
                 st.caption("1 = REMOVE • 0 = KEEP")
 
-        with bottom_right:
-            st.markdown(pipeline_html(), unsafe_allow_html=True)
+            with bottom_right:
+               st.markdown(pipeline_html(), unsafe_allow_html=True)
 
             if result["accepted"]:
                 st.success(
