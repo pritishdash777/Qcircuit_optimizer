@@ -799,112 +799,55 @@ def simulate_probabilities(circuit):
 
 
 def simulation_html(probabilities, title="Simulation Result"):
-    """
-    Create a visual probability distribution card.
-    """
 
     if not probabilities:
-        return """
-        <div class="q-card">
-            <div class="q-card-title">No simulation data</div>
-        </div>
-        """
+        return '<div class="q-card"><div class="q-card-title">No simulation data</div></div>'
 
-    # Sort basis states so 00, 01, 10, 11 appear naturally
     items = sorted(probabilities.items())
 
-    rows = []
+    rows = ""
 
     for state, probability in items:
 
         percentage = probability * 100
 
-        # Ignore extremely tiny floating point values
         if percentage < 0.0001:
             percentage = 0.0
 
-        rows.append(
-            f"""
-            <div style="
-                display:grid;
-                grid-template-columns:70px 1fr 72px;
-                gap:12px;
-                align-items:center;
-                margin:11px 0;
-            ">
+        rows += f"""
+<div style="display:grid;grid-template-columns:70px 1fr 72px;gap:12px;align-items:center;margin:11px 0;">
+<div style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;color:var(--q-text);">
+|{state}⟩
+</div>
 
-                <div style="
-                    font-family:ui-monospace, SFMono-Regular, Menlo, monospace;
-                    font-size:13px;
-                    color:var(--q-text);
-                ">
-                    |{state}⟩
-                </div>
+<div style="height:8px;background:#232833;border-radius:999px;overflow:hidden;">
+<div style="width:{percentage:.2f}%;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--q-primary-2),var(--q-primary));">
+</div>
+</div>
 
-                <div style="
-                    height:8px;
-                    background:#232833;
-                    border-radius:999px;
-                    overflow:hidden;
-                ">
-                    <div style="
-                        width:{percentage:.2f}%;
-                        height:100%;
-                        border-radius:999px;
-                        background:linear-gradient(
-                            90deg,
-                            var(--q-primary-2),
-                            var(--q-primary)
-                        );
-                        animation:qProgress 1.3s ease both;
-                    ">
-                    </div>
-                </div>
-
-                <div style="
-                    text-align:right;
-                    font-family:ui-monospace, SFMono-Regular, Menlo, monospace;
-                    color:var(--q-primary);
-                    font-weight:700;
-                    font-size:12px;
-                ">
-                    {percentage:.2f}%
-                </div>
-
-            </div>
-            """
-        )
+<div style="text-align:right;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--q-primary);font-weight:700;font-size:12px;">
+{percentage:.2f}%
+</div>
+</div>
+"""
 
     return f"""
-    <div class="q-card q-fade-4">
+<div class="q-card q-fade-4">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
 
-        <div style="
-            display:flex;
-            justify-content:space-between;
-            align-items:center;
-            margin-bottom:14px;
-        ">
+<div>
+<div class="q-card-title">{title}</div>
+<div class="q-eyebrow">STATEVECTOR PROBABILITY DISTRIBUTION</div>
+</div>
 
-            <div>
-                <div class="q-card-title">
-                    {title}
-                </div>
+<div class="q-chip">QUANTUM SIMULATION</div>
 
-                <div class="q-eyebrow">
-                    STATEVECTOR PROBABILITY DISTRIBUTION
-                </div>
-            </div>
+</div>
 
-            <div class="q-chip">
-                QUANTUM SIMULATION
-            </div>
+{rows}
 
-        </div>
-
-        {''.join(rows)}
-
-    </div>
-    """
+</div>
+"""
 
 def circuit_preflight(circuit):
     """Protect the fixed-size CNN encoder from unsupported oversized inputs."""
@@ -1557,64 +1500,86 @@ with right:
 
         with c3:
             title = "FINAL VERIFIED" if result["accepted"] else "ORIGINAL RESTORED"
-            st.markdown(f"<div class='q-eyebrow' style='color:#B7F7A8'>{title}</div>", unsafe_allow_html=True)
-            st.code(circuit_to_text(result["final"]), language="text")
-            st.caption(f"{result['final_gate_count']} gates")
+            st.markdown(
+                f"<div class='q-eyebrow' style='color:#B7F7A8'>{title}</div>",
+                unsafe_allow_html=True,
+            )
+            st.code(
+                circuit_to_text(result["final"]),
+                language="text"
+            )
+            st.caption(
+                f"{result['final_gate_count']} gates"
+            )
 
-        bottom_left, bottom_right = st.columns([1.05, 0.95], gap="large")
 
-# ============================================================
-# QUANTUM SIMULATION
-# ============================================================
+        # ============================================================
+        # QUANTUM SIMULATION
+        # ============================================================
 
-st.markdown(
-    "<div class='q-card-title q-fade-4' style='margin-top:18px'>Quantum Simulation</div>",
-    unsafe_allow_html=True,
-)
-
-st.caption(
-    "Statevector simulation showing the probability distribution "
-    "of the original and final verified quantum circuits."
-)
-
-try:
-    original_probabilities = simulate_probabilities(
-        result["original"]
-    )
-
-    final_probabilities = simulate_probabilities(
-        result["final"]
-    )
-
-    sim_left, sim_right = st.columns(
-        2,
-        gap="large"
-    )
-
-    with sim_left:
         st.markdown(
-            simulation_html(
-                original_probabilities,
-                "Original Circuit"
-            ),
+            """
+            <div class='q-card-title q-fade-4'
+                 style='margin-top:24px'>
+                Quantum Simulation
+            </div>
+            """,
             unsafe_allow_html=True,
         )
 
-    with sim_right:
-        st.markdown(
-            simulation_html(
-                final_probabilities,
-                "Final Verified Circuit"
-            ),
-            unsafe_allow_html=True,
+        st.caption(
+            "Statevector simulation showing the probability distribution "
+            "of the original and final verified quantum circuits."
         )
 
-except Exception as error:
-    st.warning(
-        f"Simulation unavailable: {error}"
-    )
+        try:
+            original_probabilities = simulate_probabilities(
+                result["original"]
+            )
 
-    with bottom_left:
+            final_probabilities = simulate_probabilities(
+                result["final"]
+            )
+
+            sim_left, sim_right = st.columns(
+                2,
+                gap="large"
+            )
+
+            with sim_left:
+                st.markdown(
+                    simulation_html(
+                        original_probabilities,
+                        "Original Circuit"
+                    ),
+                    unsafe_allow_html=True,
+                )
+
+            with sim_right:
+                st.markdown(
+                    simulation_html(
+                        final_probabilities,
+                        "Final Verified Circuit"
+                    ),
+                    unsafe_allow_html=True,
+                )
+
+        except Exception as error:
+            st.warning(
+                f"Simulation unavailable: {error}"
+            )
+
+
+        # ============================================================
+        # CNN CONFIDENCE + PIPELINE
+        # ============================================================
+
+        bottom_left, bottom_right = st.columns(
+            [1.05, 0.95],
+            gap="large"
+        )
+
+        with bottom_left:
             st.markdown(
                 confidence_html(
                     result["original"],
@@ -1625,23 +1590,33 @@ except Exception as error:
             )
 
             with st.expander("Raw gate-removal mask"):
-                st.code(str(result["predicted_mask"]), language="text")
-                st.caption("1 = REMOVE • 0 = KEEP")
+                st.code(
+                    str(result["predicted_mask"]),
+                    language="text",
+                )
+                st.caption(
+                    "1 = REMOVE • 0 = KEEP"
+                )
 
-            with bottom_right:
-               st.markdown(pipeline_html(), unsafe_allow_html=True)
+        with bottom_right:
+            st.markdown(
+                pipeline_html(),
+                unsafe_allow_html=True,
+            )
 
             if result["accepted"]:
                 st.success(
-                    "The ML proposal passed exact operator-equivalence verification and is returned as the final circuit."
+                    "The ML proposal passed exact operator-equivalence "
+                    "verification and is returned as the final circuit."
                 )
             else:
                 st.warning(
-                    "The candidate was not operator-equivalent to the original circuit, so the system rejected it and restored the original."
+                    "The candidate was not operator-equivalent to the "
+                    "original circuit, so the system rejected it and "
+                    "restored the original."
                 )
 
-# ============================================================
-# AUTO-SCROLL TO NEW RESULTS
+       # AUTO-SCROLL TO NEW RESULTS
 # ============================================================
 
 if st.session_state.scroll_to_results:
